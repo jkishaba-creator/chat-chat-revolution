@@ -8,9 +8,10 @@
     "start": "node server.js",
     "live": "CHAT_SOURCE=mock node server.js",
     "live:youtube": "CHAT_SOURCE=youtube node server.js",
-    "test": "node soak.mjs && node chat/bridge.test.mjs && node chat/youtube.test.mjs",
+    "test": "node soak.mjs && node chat/bridge.test.mjs && node chat/youtube.test.mjs && node server.test.mjs",
     "test:rules": "node soak.mjs",
     "test:chat": "node chat/bridge.test.mjs && node chat/youtube.test.mjs",
+    "test:server": "node server.test.mjs",
     "shots": "node shots.mjs"
   },
   "engines": {

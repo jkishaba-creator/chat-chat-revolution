@@ -120,11 +120,15 @@ matching other `list` methods. Watch `/api/status` during your first stream to c
 ## Checks
 
 ```bash
-npm test           # everything below
-npm run test:rules # headless soak: ~950 rounds, rule invariants, move parser
-npm run test:chat  # chat intake, capacity, seat rotation, YouTube poller
-npm run shots      # Playwright screenshots of plan / late round / impact / game over / mobile
+npm test            # everything below
+npm run test:rules  # headless soak: ~950 rounds, rule invariants, move parser
+npm run test:chat   # chat intake, capacity, seat rotation, YouTube poller
+npm run test:server # private files stay unreachable, game files stay served
+npm run shots       # Playwright screenshots of plan / late round / impact / game over / mobile
 ```
+
+`server.js` hosts its own project directory, which is where `.env` lives, so dotfiles and
+`node_modules` are refused over HTTP. `npm run test:server` is what keeps that true.
 
 `npm run shots` needs the dev server running and `npx playwright install chromium` once.
 

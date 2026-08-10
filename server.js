@@ -51,8 +51,21 @@ const TYPES = {
   ".ico": "image/x-icon",
 };
 
-// Returns an absolute path inside ROOT, or null when the request is malformed
-// or tries to escape the project directory.
+// Files that must never be served, even though they sit in the served folder.
+// .env holds the YouTube API key, and this server hosts its own source tree.
+const DENIED = new Set([".env", ".git", ".gitignore", "node_modules"]);
+
+function isDenied(relativePath) {
+  return relativePath
+    .split(/[/\\]/)
+    .filter(Boolean)
+    // Block every dotfile and dotdir, so a future .env.local or .npmrc is
+    // covered without anyone remembering to add it to the list.
+    .some((segment) => segment.startsWith(".") || DENIED.has(segment));
+}
+
+// Returns an absolute path inside ROOT, or null when the request is malformed,
+// tries to escape the project directory, or targets a private file.
 function safePath(urlPath) {
   let decoded;
   try {
@@ -63,6 +76,7 @@ function safePath(urlPath) {
   if (decoded.includes("\0")) return null;
 
   const rel = normalize(decoded);
+  if (isDenied(rel)) return null;
   const full = join(ROOT, rel === "/" || rel === sep ? "index.html" : rel);
   return full === ROOT || full.startsWith(ROOT + sep) ? full : null;
 }
