@@ -6,7 +6,7 @@
  * pushes state over Server-Sent Events; browsers only draw it.
  */
 import { Game, parseMoves } from "../src/game.js";
-import { PHASE, PLAN_FLOOR_CHAT, BOT_NAMES } from "../src/config.js";
+import { PLAN_FLOOR_CHAT, BOT_NAMES } from "../src/config.js";
 
 const TICK_MS = 50;
 const STATE_HZ = 10; // State pushes per second.
@@ -20,7 +20,9 @@ export class ChatBridge {
     this.seenMessageIds = new Set();
     this.seenOrder = [];
     this.stats = { messages: 0, commands: 0, joins: 0, ignored: 0 };
-    this.sourceStatus = { connected: false };
+    // Overrides pushed by the source's onStatus callback. Starts empty so it
+    // cannot mask what the source itself reports in status().
+    this.sourceStatus = {};
 
     this.game = new Game({
       planFloor: PLAN_FLOOR_CHAT,
@@ -147,7 +149,8 @@ export class ChatBridge {
     this.lastTick = Date.now();
     this.timer = setInterval(() => this.tick(), TICK_MS);
 
-    if (this.source) {
+    if (!this.source) return;
+    try {
       await this.source.start(
         (batch) => this.handleMessages(batch),
         (status) => {
@@ -158,7 +161,11 @@ export class ChatBridge {
           }
         },
       );
-      this.sourceStatus.connected = true;
+    } catch (error) {
+      // The board keeps running without chat rather than leaving this bridge
+      // half-started with an orphaned game loop nobody can stop.
+      this.sourceStatus = { connected: false, error: error.message, fatal: true };
+      this.pushFeed({ kind: "alert", name: "SYSTEM", body: `Chat source failed: ${error.message}` });
     }
   }
 
@@ -194,5 +201,3 @@ export class ChatBridge {
     this.clients.clear();
   }
 }
-
-export { PHASE };

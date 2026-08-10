@@ -342,8 +342,9 @@ canvas {
 @media (max-width: 900px) {
   .stage { grid-template-columns: minmax(0, 1fr); }
   /* Shorter log keeps the input near the board without reordering the DOM,
-     so the reading order still matches the visual order. */
-  .chat__log { height: 180px; }
+     so the reading order still matches the visual order. min-height has to
+     come down with it, otherwise it silently overrides the smaller height. */
+  .chat__log { height: 180px; min-height: 0; }
   .hud { width: 100%; }
   .hud__cell, .hud__cell--wide { flex: 1 1 0; min-width: 0; }
 }

@@ -110,8 +110,9 @@ check("board stayed within capacity", maxAlive <= cells, `maxAlive=${maxAlive} c
 const seatedLate = game.players.filter((p) => String(p.externalKey).startsWith("UC_late_")).length;
 check("seats rotate to newer chatters", seatedLate > 0,
   `seated late arrivals=${seatedLate}, waiting=${game.waiting.length}`);
-check("waiting list does not grow unbounded relative to arrivals",
-  game.waiting.length < 600, `waiting=${game.waiting.length}`);
+// An unbounded queue would grow with every arrival and starve latecomers.
+check("waiting list stays bounded", game.waiting.length <= game.maxWaiting,
+  `waiting=${game.waiting.length} cap=${game.maxWaiting}`);
 check("commands were accepted", bridge.stats.commands > 0, JSON.stringify(bridge.stats));
 check("conversation was ignored, not executed", bridge.stats.ignored > 0, JSON.stringify(bridge.stats));
 

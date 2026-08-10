@@ -79,8 +79,11 @@ endpoint is never called.
 - **Capacity** is 28 players on an 11x7 board. Extra viewers queue, and each new match frees a
   slice of seats (bots first, then idle players, then the longest-tenured) so a queue is never
   locked out forever.
-- **The planning window never drops below 9s** in chat mode, because YouTube delivers messages in
-  polled batches roughly every 5s. Solo play still tightens to 2.8s.
+- **The planning window runs 14.4s down to a 9s floor** in chat mode, because YouTube delivers
+  messages in polled batches roughly every 5s and a shorter window would lock chatters out of
+  every round. Solo play is unchanged: 6.2s down to 2.8s.
+- **Feedback on the board** is a gold commit mark above anyone whose path is locked in for the
+  round, so a chatter can see their command landed before the tiles do.
 
 ### Quota
 

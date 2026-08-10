@@ -62,6 +62,9 @@ export class Game {
     this.snapMotion = snapMotion;
     this.planFloor = planFloor;
     this.maxPlayers = maxPlayers;
+    // Deep enough that a seat is worth waiting for, shallow enough that the
+    // wait is measured in a couple of matches rather than never.
+    this.maxWaiting = maxPlayers * 2;
     this.reset(true);
   }
 
@@ -236,30 +239,55 @@ export class Game {
     }
 
     if (this.players.length >= this.maxPlayers) {
-      // Give a real person a bot's seat before turning them away.
-      const bot = this.players.find((p) => p.bot);
+      // Give a real person a bot's seat before turning them away. Prefer a
+      // living bot, so the newcomer is not handed an already-dead character.
+      const bot = this.players.find((p) => p.bot && p.alive) || this.players.find((p) => p.bot);
       if (bot) {
         bot.bot = false;
         bot.externalKey = externalKey;
         bot.name = name;
         bot.queue = [];
+        bot.path = null;
+        bot.stepIndex = 0;
         bot.plannedThisRound = false;
+        bot.roundsSurvived = 0;
+        bot.lastActiveRound = this.round;
+        bot.seatedAt = this.seatCounter = (this.seatCounter || 0) + 1;
+        // Inheriting a dead seat means waiting like any other mid-round joiner,
+        // rather than being permanently out for a round they never played.
+        if (!bot.alive) bot.pendingEntry = true;
         return { player: bot, status: "joined" };
       }
-      if (!this.waiting.some((w) => w.externalKey === externalKey)) {
-        this.waiting.push({ externalKey, name });
-      }
+      this.enqueue(externalKey, name);
       return { player: null, status: "queued" };
     }
 
     const player = this.addPlayer(name, { bot: false, externalKey });
     if (!player) {
-      if (!this.waiting.some((w) => w.externalKey === externalKey)) {
-        this.waiting.push({ externalKey, name });
-      }
+      this.enqueue(externalKey, name);
       return { player: null, status: "queued" };
     }
     return { player, status: "joined" };
+  }
+
+  /**
+   * Add someone to the waiting list, newest last.
+   *
+   * The queue is bounded. A busy stream produces far more would-be players than
+   * an 11x7 board can ever seat, and an unbounded list would both grow without
+   * limit and fill with people who closed the tab long ago, starving everyone
+   * who arrived later. Dropping the stalest entry is safe because anyone still
+   * watching re-queues automatically with their next message.
+   */
+  enqueue(externalKey, name) {
+    const existing = this.waiting.find((w) => w.externalKey === externalKey);
+    if (existing) {
+      existing.name = name;
+      existing.at = this.round;
+      return;
+    }
+    this.waiting.push({ externalKey, name, at: this.round });
+    while (this.waiting.length > this.maxWaiting) this.waiting.shift();
   }
 
   /**

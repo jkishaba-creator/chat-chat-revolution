@@ -33,8 +33,13 @@ export const TIMING = {
 export const PLAN_FLOOR_SOLO = 2800;
 export const PLAN_FLOOR_CHAT = 9000;
 
-export const planMs = (round, floor = PLAN_FLOOR_SOLO) =>
-  Math.max(floor, 6200 - (round - 1) * 320);
+// The window shrinks each round so pressure builds. The opening window scales
+// with the floor, otherwise chat mode would sit at a flat 9s every round and
+// lose that escalation entirely. Solo is unchanged: max(6200, 4480) = 6200.
+export const planMs = (round, floor = PLAN_FLOOR_SOLO) => {
+  const opening = Math.max(6200, floor * 1.6);
+  return Math.max(floor, opening - (round - 1) * 320);
+};
 
 // The board is 11x7. Past this many live bodies it stops being readable and
 // spawn cells run out, so extra chatters wait in a queue for the next match.

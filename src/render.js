@@ -405,6 +405,17 @@ export class Renderer {
       this.text("!", cx + 8, b - 20, { size: 9, color: C.vermilion });
     }
 
+    // Commit tick. In the live view nobody owns a path preview, so this is the
+    // only on-board proof that a chatter's command was received before impact.
+    // Sits beside the head, clear of the nameplate baseline at b - 25.
+    if (p.queue.length && (game.phase === PHASE.PLAN || game.phase === PHASE.LOCK)) {
+      this.rect(cx + 7, b - 17, 1, 2, C.ink);
+      this.rect(cx + 8, b - 15, 1, 2, C.ink);
+      this.rect(cx + 7, b - 18, 1, 2, C.gold);
+      this.rect(cx + 8, b - 16, 1, 2, C.gold);
+      this.rect(cx + 9, b - 20, 1, 4, C.gold);
+    }
+
     if (this.compact && !isYou) return;
     const label = p.name.length > 12 ? `${p.name.slice(0, 11)}…` : p.name;
     this.text(label, cx, b - 25, {

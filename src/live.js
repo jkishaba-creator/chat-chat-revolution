@@ -5,7 +5,7 @@
 import { Renderer } from "./render.js";
 import { ChatPanel } from "./chat.js";
 import { RemoteGame } from "./remote.js";
-import { PHASE } from "./config.js";
+import { PHASE, COL_LABELS } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -98,7 +98,7 @@ function updateHud() {
 }
 
 function describeBoard() {
-  const danger = game.hazards.slice(0, 10).map((h) => `${"ABCDEFGHIJK"[h.x]}${h.y + 1}`).join(", ");
+  const danger = game.hazards.slice(0, 10).map((h) => `${COL_LABELS[h.x]}${h.y + 1}`).join(", ");
   return `Round ${game.round}, ${PHASE_TEXT[game.phase] || game.phase}. `
     + `${game.alivePlayers().length} of ${game.players.length} standing. `
     + (danger ? `Danger cells ${danger}.` : "No danger yet.");
@@ -108,6 +108,7 @@ function describeBoard() {
 
 let stream = null;
 let retryMs = 1000;
+let primed = false;
 
 function connect() {
   stream = new EventSource("/api/stream");
@@ -115,7 +116,12 @@ function connect() {
   stream.addEventListener("hello", (event) => {
     const payload = JSON.parse(event.data);
     game.apply(payload.state);
-    for (const entry of payload.feed) renderFeedEntry(entry);
+    // Replay the backlog only on the first connection. After a reconnect those
+    // messages are already on screen and would be shown twice.
+    if (!primed) {
+      for (const entry of payload.feed) renderFeedEntry(entry);
+      primed = true;
+    }
     applyStatus(payload.status);
     connected = true;
     retryMs = 1000;

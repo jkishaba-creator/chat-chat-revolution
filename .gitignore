@@ -2,3 +2,8 @@ node_modules/
 .polariumcode/
 .DS_Store
 *.log
+
+# Never commit credentials. The YouTube API key lives here and nowhere else.
+.env
+.env.*
+!.env.example

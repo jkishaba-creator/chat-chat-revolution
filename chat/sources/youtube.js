@@ -32,6 +32,13 @@ const IDLE_BACKOFF = [
 export class QuotaExceeded extends Error {}
 export class ChatEnded extends Error {}
 
+// Error messages surface on the public /api/status endpoint, and a network
+// failure can embed the request URL, so the key is stripped from any text.
+function scrub(message, apiKey) {
+  const text = String(message || "");
+  return apiKey ? text.split(apiKey).join("[key]") : text;
+}
+
 function extractVideoId(input) {
   const raw = String(input || "").trim();
   if (!raw) return null;
@@ -124,8 +131,17 @@ export function createYouTubeSource({
 
     async start(onMessages, onStatus = () => {}) {
       stopped = false;
-      liveChatId = await resolveChatId();
-      onStatus({ connected: true, liveChatId });
+      try {
+        liveChatId = await resolveChatId();
+      } catch (error) {
+        // A bad video ID or an ended stream must not take the board down:
+        // report it and let the game keep running without chat input.
+        lastError = scrub(error.message, apiKey);
+        stopped = true;
+        onStatus({ connected: false, error: lastError, fatal: true });
+        return { pollingIntervalMillis: 0 };
+      }
+      onStatus({ connected: true });
 
       const tick = async () => {
         if (stopped) return;
@@ -160,15 +176,16 @@ export function createYouTubeSource({
           pollMs = nextDelay(items.length, data.pollingIntervalMillis);
           lastError = null;
         } catch (error) {
-          lastError = error.message;
+          const message = scrub(error.message, apiKey);
+          lastError = message;
           if (error instanceof QuotaExceeded || error instanceof ChatEnded) {
-            onStatus({ connected: false, error: error.message, fatal: true });
+            onStatus({ connected: false, error: message, fatal: true });
             stopped = true;
             return;
           }
           // Transient failure: slow down rather than hammering the API.
           pollMs = Math.min(30000, pollMs * 2);
-          onStatus({ connected: true, error: error.message, fatal: false });
+          onStatus({ connected: true, error: message, fatal: false });
         }
         if (!stopped) timer = setTimeout(tick, pollMs);
       };
