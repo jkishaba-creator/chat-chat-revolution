@@ -123,6 +123,11 @@ body {
 
 .hud__slash { color: var(--gold-dim); padding: 0 2px; }
 
+/* Bridge stats under the live chat feed. */
+.hud--stack { width: 100%; }
+.hud--stack .hud__cell { flex: 1 1 0; min-width: 0; }
+.hud--stack dd { font-size: 15px; }
+
 /* ---------- stage ---------- */
 
 .stage {
@@ -243,6 +248,8 @@ canvas {
   list-style: none;
   margin: 0;
   padding: 8px;
+  flex: 1 1 auto;
+  min-height: 200px;
   height: 360px;
   overflow-y: auto;
   overscroll-behavior: contain;

@@ -1,5 +1,5 @@
 import {
-  COLS, ROWS, MAX_MOVES, PHASE, TIMING, planMs,
+  COLS, ROWS, MAX_MOVES, PHASE, TIMING, planMs, PLAN_FLOOR_SOLO, MAX_CHATTERS,
   SKINS, BOT_NAMES, COL_LABELS,
 } from "./config.js";
 
@@ -56,10 +56,12 @@ export function movesToPath(startX, startY, moves, blocked) {
 }
 
 export class Game {
-  constructor({ onEvent, snapMotion = false } = {}) {
+  constructor({ onEvent, snapMotion = false, planFloor = PLAN_FLOOR_SOLO, maxPlayers = MAX_CHATTERS } = {}) {
     this.onEvent = onEvent || (() => {});
     // With reduced motion the token jumps square to square instead of sliding.
     this.snapMotion = snapMotion;
+    this.planFloor = planFloor;
+    this.maxPlayers = maxPlayers;
     this.reset(true);
   }
 
@@ -79,22 +81,28 @@ export class Game {
       this.players = [];
       this.nextBotId = 0;
       this.humanId = null;
-      this.planDuration = planMs(1);
+      this.planDuration = planMs(1, this.planFloor);
+      this.waiting = [];
       return;
     }
 
     this.enterPhase(PHASE.BREAK, 1400);
+    // A fresh match is the one moment seats free up for anyone who was queued.
+    this.admitWaiting();
     for (const p of this.players) {
       p.alive = true;
       p.spectating = false;
+      p.pendingEntry = false;
       p.queue = [];
       p.path = null;
       p.stepIndex = 0;
       p.plannedThisRound = false;
       p.roundsSurvived = 0;
       const spot = this.freeSpawn();
-      p.x = spot.x; p.y = spot.y;
-      p.rx = spot.x; p.ry = spot.y;
+      if (spot) {
+        p.x = spot.x; p.y = spot.y;
+        p.rx = spot.x; p.ry = spot.y;
+      }
     }
     this.emit("system", "New match. Everyone respawns.");
   }
@@ -113,11 +121,12 @@ export class Game {
    * Players
    * ------------------------------------------------------------------ */
 
-  addPlayer(name, { bot = false, skill = 0.8 } = {}) {
-    const id = `${bot ? "bot" : "you"}-${this.nextBotId++}`;
+  addPlayer(name, { bot = false, skill = 0.8, externalKey = null } = {}) {
     const spot = this.freeSpawn();
+    if (!spot) return null; // Board is full.
+    const id = `${bot ? "bot" : "you"}-${this.nextBotId++}`;
     const player = {
-      id, name, bot, skill,
+      id, name, bot, skill, externalKey,
       skin: SKINS[this.players.length % SKINS.length],
       x: spot.x, y: spot.y,
       rx: spot.x, ry: spot.y,
@@ -128,7 +137,12 @@ export class Game {
       bumped: false,
       roundsSurvived: 0,
       plannedThisRound: false,
+      lastActiveRound: this.round,
+      seatedAt: this.seatCounter = (this.seatCounter || 0) + 1,
       spectating: this.phase !== PHASE.BREAK && this.round > 0,
+      // Arriving mid-round is not the same as being eliminated: a newcomer sits
+      // out the current round, then enters at the next one.
+      pendingEntry: this.phase !== PHASE.BREAK && this.round > 0,
       face: 1,
     };
     if (player.spectating) player.alive = false;
@@ -143,6 +157,7 @@ export class Game {
       return existing;
     }
     const p = this.addPlayer(name, { bot: false });
+    if (!p) return null;
     p.spectating = false;
     p.alive = true;
     this.humanId = p.id;
@@ -153,15 +168,27 @@ export class Game {
     return this.players.find((p) => p.id === this.humanId) || null;
   }
 
+  // Returns a free cell, or null when the board is genuinely full. Callers must
+  // handle null: dropping a player onto an obstacle would break the fairness check.
   freeSpawn() {
     const taken = new Set(this.players.filter((p) => p.alive).map((p) => key(p.x, p.y)));
-    const blocked = new Set(this.obstacles.map((o) => key(o.x, o.y)));
-    for (let i = 0; i < 200; i++) {
+    const blocked = this.blockedCells();
+    for (let i = 0; i < 120; i++) {
       const x = randInt(COLS);
       const y = randInt(ROWS);
       if (!taken.has(key(x, y)) && !blocked.has(key(x, y))) return { x, y };
     }
-    return { x: randInt(COLS), y: randInt(ROWS) };
+    // Random probing failed, so the board is crowded. Scan every cell before
+    // declaring it full, starting at a random offset to avoid a corner bias.
+    const total = COLS * ROWS;
+    const offset = randInt(total);
+    for (let i = 0; i < total; i++) {
+      const cell = (offset + i) % total;
+      const x = cell % COLS;
+      const y = Math.floor(cell / COLS);
+      if (!taken.has(key(x, y)) && !blocked.has(key(x, y))) return { x, y };
+    }
+    return null;
   }
 
   alivePlayers() {
@@ -181,7 +208,116 @@ export class Game {
     if (this.phase !== PHASE.PLAN) return false;
     player.queue = moves.slice(0, MAX_MOVES);
     player.plannedThisRound = true;
+    player.lastActiveRound = this.round;
     return true;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Live chat
+   *
+   * A chatter is identified by their channel ID, never their display name,
+   * so renaming mid-match cannot steal another player's character.
+   * ------------------------------------------------------------------ */
+
+  findByKey(externalKey) {
+    return this.players.find((p) => p.externalKey === externalKey) || null;
+  }
+
+  /**
+   * Seat a chatter, replacing a bot if the board is full of them.
+   * Returns { player, status } where status is one of:
+   * "joined", "returning", "queued".
+   */
+  joinChatter(externalKey, name) {
+    const existing = this.findByKey(externalKey);
+    if (existing) {
+      if (name && existing.name !== name) existing.name = name;
+      return { player: existing, status: "returning" };
+    }
+
+    if (this.players.length >= this.maxPlayers) {
+      // Give a real person a bot's seat before turning them away.
+      const bot = this.players.find((p) => p.bot);
+      if (bot) {
+        bot.bot = false;
+        bot.externalKey = externalKey;
+        bot.name = name;
+        bot.queue = [];
+        bot.plannedThisRound = false;
+        return { player: bot, status: "joined" };
+      }
+      if (!this.waiting.some((w) => w.externalKey === externalKey)) {
+        this.waiting.push({ externalKey, name });
+      }
+      return { player: null, status: "queued" };
+    }
+
+    const player = this.addPlayer(name, { bot: false, externalKey });
+    if (!player) {
+      if (!this.waiting.some((w) => w.externalKey === externalKey)) {
+        this.waiting.push({ externalKey, name });
+      }
+      return { player: null, status: "queued" };
+    }
+    return { player, status: "joined" };
+  }
+
+  /**
+   * Apply a parsed path from live chat. Auto-joins first-time chatters.
+   * Returns a small result the bridge can turn into feedback.
+   */
+  submitFromChat(externalKey, name, moves) {
+    const { player, status } = this.joinChatter(externalKey, name);
+    if (!player) return { ok: false, reason: "queued", player: null, status };
+    if (!player.alive) {
+      return { ok: false, reason: player.pendingEntry ? "next-round" : "eliminated", player, status };
+    }
+    if (this.phase !== PHASE.PLAN) return { ok: false, reason: "locked", player, status };
+    this.submitMoves(player, moves);
+    return { ok: true, reason: "accepted", player, status };
+  }
+
+  /**
+   * Free seats between matches so a queue of viewers is not locked out forever.
+   *
+   * A busy stream will always have more people than the 11x7 board can hold, so
+   * "wait for someone to go idle" would never fire. Instead each new match frees
+   * a slice of seats, giving up bots first, then the longest-idle players, then
+   * the longest-tenured. Everyone gets a turn without the board churning fully.
+   */
+  rotateSeats({ idleRounds = 6, churn = 0.3 } = {}) {
+    if (!this.waiting.length) return 0;
+
+    const candidates = this.players.filter((p) => p.id !== this.humanId);
+    const rank = (p) => {
+      if (p.bot) return 0;                                                   // bots first
+      if (this.round - (p.lastActiveRound ?? -Infinity) >= idleRounds) return 1; // then idle
+      return 2;                                                              // then longest tenured
+    };
+    candidates.sort((a, b) => rank(a) - rank(b)
+      || (a.lastActiveRound ?? -1) - (b.lastActiveRound ?? -1)
+      || (a.seatedAt ?? 0) - (b.seatedAt ?? 0));
+
+    const slice = Math.max(1, Math.ceil(this.maxPlayers * churn));
+    const freeing = Math.min(candidates.length, this.waiting.length, slice);
+    if (freeing <= 0) return 0;
+    const evicted = new Set(candidates.slice(0, freeing).map((p) => p.id));
+    this.players = this.players.filter((p) => !evicted.has(p.id));
+    return freeing;
+  }
+
+  // Called between matches so queued chatters get a seat.
+  admitWaiting() {
+    this.rotateSeats();
+    while (this.waiting.length && this.players.length < this.maxPlayers) {
+      const next = this.waiting.shift();
+      if (this.findByKey(next.externalKey)) continue;
+      const player = this.addPlayer(next.name, { bot: false, externalKey: next.externalKey });
+      if (!player) {
+        this.waiting.unshift(next);
+        break;
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ *
@@ -193,13 +329,18 @@ export class Game {
     this.winner = null;
 
     for (const p of this.players) {
-      // Chat gets eliminated for the match; the local player rejoins each round.
-      if (p.spectating && p.id === this.humanId) {
-        p.spectating = false;
-        p.alive = true;
+      // Two groups come back at the start of a round: the local player, who
+      // always respawns, and newcomers who arrived while a round was running.
+      // Chatters flattened by a tile stay out until the next match.
+      if (p.spectating && (p.id === this.humanId || p.pendingEntry)) {
         const spot = this.freeSpawn();
-        p.x = spot.x; p.y = spot.y;
-        p.rx = spot.x; p.ry = spot.y;
+        if (spot) {
+          p.spectating = false;
+          p.pendingEntry = false;
+          p.alive = true;
+          p.x = spot.x; p.y = spot.y;
+          p.rx = spot.x; p.ry = spot.y;
+        }
       }
       p.queue = [];
       p.path = null;
@@ -211,7 +352,7 @@ export class Game {
     this.hazards = this.generateHazards();
     this.effects = [];
 
-    this.planDuration = planMs(this.round);
+    this.planDuration = planMs(this.round, this.planFloor);
     this.enterPhase(PHASE.PLAN, this.planDuration);
 
     const named = this.hazards.slice(0, 8).map((h) => cellName(h.x, h.y)).join(", ");

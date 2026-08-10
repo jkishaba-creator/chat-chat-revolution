@@ -27,7 +27,18 @@ export const TIMING = {
   gameover: 6000,
 };
 
-export const planMs = (round) => Math.max(2800, 6200 - (round - 1) * 320);
+// Solo play can shrink the planning window to reflex speed. Chat play cannot:
+// YouTube delivers messages in polled batches, so the window must stay longer
+// than one poll cycle or live chatters are locked out of every round.
+export const PLAN_FLOOR_SOLO = 2800;
+export const PLAN_FLOOR_CHAT = 9000;
+
+export const planMs = (round, floor = PLAN_FLOOR_SOLO) =>
+  Math.max(floor, 6200 - (round - 1) * 320);
+
+// The board is 11x7. Past this many live bodies it stops being readable and
+// spawn cells run out, so extra chatters wait in a queue for the next match.
+export const MAX_CHATTERS = 28;
 
 export const PALETTE = {
   water: "#12244a",

@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node soak.mjs",
+    "live": "CHAT_SOURCE=mock node server.js",
+    "test": "node soak.mjs && node chat/bridge.test.mjs && node chat/youtube.test.mjs",
+    "test:rules": "node soak.mjs",
+    "test:chat": "node chat/bridge.test.mjs && node chat/youtube.test.mjs",
     "shots": "node shots.mjs"
   },
   "engines": {

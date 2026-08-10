@@ -9,6 +9,10 @@ const ROOT = resolve(fileURLToPath(new URL("./", import.meta.url)));
 const PORT = Number(process.env.PORT) || 4173;
 const HOST = process.env.HOST || "0.0.0.0";
 
+// Chat mode is opt-in. With CHAT_SOURCE unset the server stays a pure static
+// host and the solo game behaves exactly as before.
+const CHAT_SOURCE = process.env.CHAT_SOURCE || "off";
+
 const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -36,10 +40,74 @@ function safePath(urlPath) {
   return full === ROOT || full.startsWith(ROOT + sep) ? full : null;
 }
 
+let bridge = null;
+
+async function startBridge() {
+  if (CHAT_SOURCE === "off") return null;
+
+  const { ChatBridge } = await import("./chat/bridge.js");
+  let source;
+
+  if (CHAT_SOURCE === "mock") {
+    const { createMockSource } = await import("./chat/sources/mock.js");
+    source = createMockSource();
+  } else if (CHAT_SOURCE === "youtube") {
+    const { createYouTubeSource } = await import("./chat/sources/youtube.js");
+    source = createYouTubeSource({
+      apiKey: process.env.YOUTUBE_API_KEY,
+      video: process.env.YOUTUBE_VIDEO,
+      dailyQuotaBudget: Number(process.env.YOUTUBE_QUOTA_BUDGET) || 9000,
+    });
+  } else {
+    throw new Error(`Unknown CHAT_SOURCE ${JSON.stringify(CHAT_SOURCE)}. Use off, mock or youtube.`);
+  }
+
+  const started = new ChatBridge({ source });
+  await started.start();
+  console.log(`Chat bridge running on source "${source.name}"`);
+  return started;
+}
+
 const server = createServer(async (req, res) => {
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { "content-type": "text/plain; charset=utf-8", allow: "GET, HEAD" });
     res.end("Method not allowed");
+    return;
+  }
+
+  const path = (req.url || "/").split("?")[0];
+
+  if (path === "/api/status") {
+    const body = JSON.stringify(bridge ? bridge.status() : { source: "off", connected: false });
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(req.method === "HEAD" ? undefined : body);
+    return;
+  }
+
+  if (path === "/api/stream") {
+    if (!bridge) {
+      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Chat mode is off");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    res.write(": connected\n\n");
+    const remove = bridge.addClient(res);
+    // Proxies drop idle streams, so send a comment heartbeat.
+    const beat = setInterval(() => {
+      if (!res.writableEnded) res.write(": ping\n\n");
+    }, 15000);
+    const cleanup = () => {
+      clearInterval(beat);
+      remove();
+    };
+    req.on("close", cleanup);
+    res.on("close", cleanup);
     return;
   }
 
@@ -76,6 +144,20 @@ server.on("clientError", (error, socket) => {
   if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
 });
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
   console.log(`Chat Chat Revolution serving on http://${HOST}:${PORT}`);
+  try {
+    bridge = await startBridge();
+  } catch (error) {
+    // A bad chat config must not take the game offline; solo play still works.
+    console.error(`Chat bridge failed to start: ${error.message}`);
+  }
 });
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (bridge) bridge.stop();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
+}
