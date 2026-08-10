@@ -7,11 +7,14 @@
  */
 import { spawn } from "node:child_process";
 import { writeFileSync, rmSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const PORT = 4199;
 const BASE = `http://127.0.0.1:${PORT}`;
 const CANARY = "AIzaCANARY_NOT_A_REAL_KEY_000000000000";
-const envPath = new URL("./.env", import.meta.url).pathname;
+// fileURLToPath, not .pathname: a percent-encoded path would silently write the
+// throwaway .env somewhere other than the project root.
+const envPath = fileURLToPath(new URL("./.env", import.meta.url));
 
 let failures = 0;
 const check = (name, cond, detail = "") => {
@@ -28,10 +31,16 @@ const child = spawn("node", ["server.js"], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 
+let stderr = "";
+child.stderr.on("data", (d) => { stderr += d; });
+
+// Wait for the listening line rather than treating any stderr byte as failure:
+// Node prints experimental warnings there and those are not test failures.
 const ready = new Promise((resolve, reject) => {
   child.stdout.on("data", (d) => { if (String(d).includes("serving")) resolve(); });
-  child.stderr.on("data", (d) => reject(new Error(String(d))));
-  setTimeout(() => reject(new Error("server did not start")), 8000);
+  child.on("exit", (code) => reject(new Error(`server exited early (code ${code}): ${stderr.trim()}`)));
+  const timer = setTimeout(() => reject(new Error(`server did not start: ${stderr.trim()}`)), 8000);
+  timer.unref();
 });
 
 try {
@@ -65,8 +74,12 @@ try {
   }
   const alive = await get("/");
   check("still serving after malformed burst", alive.status === 200, `status=${alive.status}`);
+} catch (error) {
+  failures += 1;
+  console.log(`  FAIL server did not come up: ${error.message}`);
 } finally {
   child.kill("SIGTERM");
+  // Only remove the .env this test created; never touch a real one.
   if (!hadEnv) rmSync(envPath, { force: true });
 }
 

@@ -93,9 +93,12 @@ when chat is quiet. At a 5s interval that is roughly 720 units/hour, so a normal
 comfortably. The poller stops itself at `YOUTUBE_QUOTA_BUDGET` so it can never drain the whole
 project allocation.
 
-**Unverified:** this has been tested against a stubbed API and a simulated audience, not yet
-against a live broadcast. The per-call cost of `liveChatMessages.list` is assumed to be 1 unit,
-matching other `list` methods. Watch `/api/status` during your first stream to confirm.
+Measured against a real broadcast: connecting and polling a live chat for 45s ingested 19 messages
+for 16 quota units, at a 6s interval chosen by YouTube. `liveChatMessages.list` bills 1 unit per
+call, matching other `list` methods. Watch `/api/status` on your own stream to confirm the rate.
+
+`search.list` costs 100 units and is never called at runtime. Finding a broadcast by channel would
+need it, which is why `YOUTUBE_VIDEO` is a video, not a channel.
 
 ## Layout
 
@@ -114,6 +117,7 @@ matching other `list` methods. Watch `/api/status` during your first stream to c
 | `chat/sources/youtube.js` | Quota-aware YouTube live chat poller |
 | `chat/sources/mock.js` | Simulated audience for offline testing |
 | `server.js` | Zero-dependency static server for local dev and deploys |
+| `server.test.mjs` | Asserts `.env` and other private files stay unreachable over HTTP |
 | `railway.json` | Deploy config: skips dev dependencies, starts `npm start` |
 | `DESIGN.md` | Design read, thesis and accessibility notes |
 
