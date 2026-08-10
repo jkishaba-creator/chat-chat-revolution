@@ -1,0 +1,18 @@
+{
+  "name": "chat-chat-revolution",
+  "version": "1.0.0",
+  "description": "Kawara-otoshi: a chat-controlled grid dodging game. Type l/r/u/d to plot a path before the roof tiles land.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node soak.mjs",
+    "shots": "node shots.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

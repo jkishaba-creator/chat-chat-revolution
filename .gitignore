@@ -1,0 +1,4 @@
+node_modules/
+.polariumcode/
+.DS_Store
+*.log

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat Chat Revolution — Kawara-otoshi</title>
+<meta name="description" content="A chat-controlled grid dodging game. Type l, r, u, d to plot your path before the roof tiles fall." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="frame">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__jp" lang="ja">瓦落とし</span>
+        <span class="brand__en">Chat Chat Revolution</span>
+      </div>
+      <dl class="hud" aria-label="Match status">
+        <div class="hud__cell">
+          <dt>Round</dt>
+          <dd id="hud-round">1</dd>
+        </div>
+        <div class="hud__cell">
+          <dt>Alive</dt>
+          <dd><span id="hud-alive">0</span><span class="hud__slash">/</span><span id="hud-total">0</span></dd>
+        </div>
+        <div class="hud__cell hud__cell--wide">
+          <dt>Phase</dt>
+          <dd id="hud-phase">Plot your path</dd>
+        </div>
+      </dl>
+    </header>
+
+    <main class="stage">
+      <section class="board" aria-labelledby="board-heading">
+        <h2 id="board-heading" class="sr-only">Game board</h2>
+        <div class="board__timer">
+          <span class="board__timer-text" id="timer-text">5.0s to plan</span>
+          <span class="board__timer-track"><span class="board__timer-fill" id="timer-fill"></span></span>
+        </div>
+        <div class="board__canvas-wrap">
+          <canvas id="game" width="416" height="300" role="img" aria-labelledby="board-heading" aria-describedby="board-alt"></canvas>
+        </div>
+        <p id="board-alt" class="sr-only" aria-live="off">Board state loading.</p>
+        <p class="board__hint">
+          Grid is lettered <b>A–K</b> across and numbered <b>1–7</b> down. Count squares, then type the path.
+        </p>
+      </section>
+
+      <section class="chat" aria-labelledby="chat-heading">
+        <div class="chat__head">
+          <h2 id="chat-heading">Chat</h2>
+          <p class="chat__legend"><b>l</b> left · <b>r</b> right · <b>u</b> up · <b>d</b> down · up to 5 steps, e.g. <code>rrud</code> or <code>r3u</code></p>
+        </div>
+        <ol class="chat__log" id="chat-log" aria-label="Chat messages"></ol>
+        <form class="chat__form" id="chat-form" autocomplete="off">
+          <div class="field">
+            <label class="field__label" for="handle">Your handle</label>
+            <input class="field__input" id="handle" name="handle" maxlength="14" value="YOU" />
+          </div>
+          <div class="field">
+            <label class="field__label" for="say">Message or path</label>
+            <div class="field__row">
+              <input class="field__input" id="say" name="say" placeholder="rrud" maxlength="60"
+                enterkeyhint="send" aria-describedby="input-status" />
+              <button class="btn" type="submit">Send</button>
+            </div>
+          </div>
+          <p class="chat__status" id="input-status">Arrow keys add a step when no text field has focus.</p>
+        </form>
+      </section>
+    </main>
+
+    <p class="announcer sr-only" id="announcer" role="status" aria-live="polite"></p>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

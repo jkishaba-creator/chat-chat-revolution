@@ -1,0 +1,74 @@
+// Board geometry (logical pixels; the canvas is drawn at 416x300 and scaled up).
+export const COLS = 11;
+export const ROWS = 7;
+export const TILE = 32;
+export const LOGICAL_W = 416;
+export const LOGICAL_H = 300;
+export const ARENA_X = (LOGICAL_W - COLS * TILE) / 2; // 32
+export const ARENA_Y = 54;
+
+export const MAX_MOVES = 5;
+export const COL_LABELS = "ABCDEFGHIJK".split("");
+
+export const PHASE = {
+  PLAN: "plan",
+  LOCK: "lock",
+  RESOLVE: "resolve",
+  IMPACT: "impact",
+  BREAK: "break",
+  GAMEOVER: "gameover",
+};
+
+export const TIMING = {
+  lock: 380,
+  step: 170,
+  impact: 700,
+  break: 1200,
+  gameover: 6000,
+};
+
+export const planMs = (round) => Math.max(2800, 6200 - (round - 1) * 320);
+
+export const PALETTE = {
+  water: "#12244a",
+  waterLight: "#1b3466",
+  stone: "#5b6172",
+  stoneDark: "#464c5c",
+  wood: "#6b4230",
+  woodDark: "#4a2c20",
+  grid: "#d8b45c",
+  gold: "#d8b45c",
+  vermilion: "#e0483a",
+  sakura: "#f2a8bd",
+  paper: "#f4efe2",
+  ink: "#141a26",
+  bamboo: "#4f7a45",
+  bambooDark: "#31512c",
+};
+
+// Kimono / hair colours for characters.
+export const SKINS = [
+  { robe: "#e0483a", trim: "#f4efe2", hair: "#1b1b22" },
+  { robe: "#3f6fd8", trim: "#d8b45c", hair: "#2a1c12" },
+  { robe: "#4f9e5c", trim: "#f4efe2", hair: "#1b1b22" },
+  { robe: "#8b5cd6", trim: "#f2a8bd", hair: "#4a2c20" },
+  { robe: "#d8b45c", trim: "#141a26", hair: "#1b1b22" },
+  { robe: "#f2a8bd", trim: "#8c2b22", hair: "#2a1c12" },
+  { robe: "#2fa8a0", trim: "#f4efe2", hair: "#1b1b22" },
+  { robe: "#f07a2a", trim: "#141a26", hair: "#4a2c20" },
+  { robe: "#c8ccd8", trim: "#3f6fd8", hair: "#1b1b22" },
+  { robe: "#7a1f2b", trim: "#d8b45c", hair: "#2a1c12" },
+];
+
+export const BOT_NAMES = [
+  "KITSUNE99", "ramen_dad", "ShogunSam", "tanuki_tv", "HANABI", "mochi_mochi",
+  "aoi_ame", "RONIN_77", "sakura_bot", "kappa_sensei", "YUKI", "TOFU_KING",
+  "neko_neko", "DAIFUKU", "ZEN_MODE", "umeboshi", "genji_p", "OBI_WAN_KO",
+  "shiba_inu", "matcha_ma", "HAYABUSA", "koi_no_yokan", "zenzen_ok", "BUSHIDO_B",
+];
+
+export const BOT_CHATTER = [
+  "いくぞ", "no way", "gg", "rock C4 is mine", "counting squares…",
+  "why do I always go left", "こわい", "trust the grid", "clutch", "run run run",
+  "I ate a boulder", "lag diff", "one more round", "頑張れ", "ez",
+];
