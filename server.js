@@ -20,11 +20,19 @@ const TYPES = {
   ".ico": "image/x-icon",
 };
 
+// Returns an absolute path inside ROOT, or null when the request is malformed
+// or tries to escape the project directory.
 function safePath(urlPath) {
-  const decoded = decodeURIComponent(urlPath.split("?")[0]);
-  const rel = normalize(decoded).replace(/^(\.\.[/\\])+/, "");
+  let decoded;
+  try {
+    decoded = decodeURIComponent(urlPath.split("?")[0]);
+  } catch {
+    return null; // Malformed percent-encoding, e.g. "/%".
+  }
+  if (decoded.includes("\0")) return null;
+
+  const rel = normalize(decoded);
   const full = join(ROOT, rel === "/" || rel === sep ? "index.html" : rel);
-  // Refuse anything that escapes the project directory.
   return full === ROOT || full.startsWith(ROOT + sep) ? full : null;
 }
 
@@ -37,8 +45,8 @@ const server = createServer(async (req, res) => {
 
   const file = safePath(req.url || "/");
   if (!file) {
-    res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-    res.end("Forbidden");
+    res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Bad request");
     return;
   }
 
@@ -53,9 +61,19 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     const notFound = error.code === "ENOENT" || error.code === "EISDIR";
     if (!notFound) console.error(`500 ${req.url}:`, error.message);
+    // Headers may already be out if the failure happened mid-response.
+    if (res.headersSent) {
+      res.destroy();
+      return;
+    }
     res.writeHead(notFound ? 404 : 500, { "content-type": "text/plain; charset=utf-8" });
     res.end(notFound ? "Not found" : "Internal server error");
   }
+});
+
+// A single malformed request must never take the game offline.
+server.on("clientError", (error, socket) => {
+  if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
 });
 
 server.listen(PORT, HOST, () => {

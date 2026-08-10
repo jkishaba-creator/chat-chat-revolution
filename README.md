@@ -4,7 +4,10 @@ A chat-controlled dodging game. Everyone on the board is a chatter. Each round t
 bells and boulders pick their squares, you get a few seconds to count grid squares, and then
 everything lands at once.
 
-No build step, no assets, no network. Open it and play.
+Play it: <https://chat-chat-revolution-production.up.railway.app>
+
+No build step, no image assets, no backend, no runtime dependencies. The only network call is
+the webfont. Run it locally with:
 
 ```bash
 npm start          # serves on http://localhost:4173
@@ -46,6 +49,7 @@ square within 5 steps before the round starts.
 | `src/chat.js` | Chat log rendering |
 | `src/main.js` | Wiring: input, HUD, bot chatter, frame loop |
 | `server.js` | Zero-dependency static server for local dev and deploys |
+| `railway.json` | Deploy config: skips dev dependencies, starts `npm start` |
 | `DESIGN.md` | Design read, thesis and accessibility notes |
 
 ## Checks
@@ -56,3 +60,12 @@ npm run shots      # Playwright screenshots of plan / late round / impact / game
 ```
 
 `npm run shots` needs the dev server running and `npx playwright install chromium` once.
+
+## Deploy
+
+```bash
+railway up
+```
+
+Railway deploys from the local directory, so a `git push` alone does not redeploy. Connect the
+GitHub repo in the Railway dashboard if you want pushes to deploy automatically.
