@@ -13,8 +13,9 @@ const STATE_HZ = 10; // State pushes per second.
 const FEED_LIMIT = 40;
 
 export class ChatBridge {
-  constructor({ source, botFill = 6 } = {}) {
+  constructor({ source, botFill = 6, store = null } = {}) {
     this.source = source;
+    this.store = store;
     this.clients = new Set();
     this.feed = [];
     this.seenMessageIds = new Set();
@@ -26,7 +27,7 @@ export class ChatBridge {
 
     this.game = new Game({
       planFloor: PLAN_FLOOR_CHAT,
-      onEvent: ({ type, text }) => this.pushFeed({ kind: type === "round" ? "system" : type, name: "SYSTEM", body: text }),
+      onEvent: (event) => this.handleGameEvent(event),
     });
 
     // A few bots so the board is never empty before viewers arrive. They are
@@ -39,6 +40,51 @@ export class ChatBridge {
     this.lastState = 0;
     this.lastTick = Date.now();
     this.timer = null;
+  }
+
+  /* ---------------- results ---------------- */
+
+  handleGameEvent({ type, text, meta }) {
+    if (type === "roundSettled") {
+      this.recordRound(meta);
+      return; // Bookkeeping, not something chat needs to read.
+    }
+    if (type === "result" && this.game.winner) this.recordWin(this.game.winner);
+    this.pushFeed({ kind: type === "round" ? "system" : type, name: "SYSTEM", body: text });
+  }
+
+  byId(id) {
+    return this.game.players.find((p) => p.id === id) || null;
+  }
+
+  recordRound(meta) {
+    if (!this.store || !meta) return;
+    for (const [group, survived] of [[meta.survivors, true], [meta.casualties, false]]) {
+      for (const entry of group) {
+        const player = this.byId(entry.id);
+        if (!player || player.bot || !player.externalKey) continue;
+        this.store.recordRound(player.externalKey, player.name, {
+          survived,
+          roundsSurvived: entry.roundsSurvived,
+        });
+      }
+    }
+  }
+
+  recordWin(winner) {
+    if (!this.store || !winner || winner.bot || !winner.externalKey) return;
+    const profile = this.store.recordWin(winner.externalKey, winner.name, winner.roundsSurvived);
+    if (!profile) return;
+    const suffix = profile.wins === 1 ? "first victory" : `${profile.wins} victories`;
+    this.pushFeed({
+      kind: "system",
+      name: "SYSTEM",
+      body: `${winner.name} — ${suffix} this season, best run ${profile.bestRound} rounds.`,
+    });
+  }
+
+  leaderboard(limit = 10) {
+    return this.store ? this.store.leaderboard(limit) : [];
   }
 
   /* ---------------- chat intake ---------------- */
@@ -193,6 +239,8 @@ export class ChatBridge {
       alive: this.game.alivePlayers().length,
       waiting: this.game.waiting.length,
       stats: this.stats,
+      ...(this.store ? this.store.status() : { storage: "off" }),
+      leaderboard: this.leaderboard(),
     };
   }
 
@@ -200,6 +248,7 @@ export class ChatBridge {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     if (this.source) this.source.stop();
+    if (this.store) this.store.close();
     for (const res of this.clients) res.end();
     this.clients.clear();
   }

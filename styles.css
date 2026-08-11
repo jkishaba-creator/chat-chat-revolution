@@ -128,6 +128,51 @@ body {
 .hud--stack .hud__cell { flex: 1 1 0; min-width: 0; }
 .hud--stack dd { font-size: 15px; }
 
+/* 番付 seasonal leaderboard. */
+.banzuke {
+  background: var(--night-2);
+  border: 1px solid var(--panel-line);
+  border-radius: 2px;
+  padding: 8px 10px;
+}
+
+.banzuke__title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.banzuke__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.banzuke__row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.banzuke__rank { color: var(--gold-dim); text-align: end; }
+
+.banzuke__name {
+  color: var(--paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banzuke__score { color: var(--sakura); }
+.banzuke__empty { color: var(--muted); }
+
 /* ---------- stage ---------- */
 
 .stage {

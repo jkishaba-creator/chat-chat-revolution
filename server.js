@@ -103,9 +103,12 @@ async function startBridge() {
     throw new Error(`Unknown CHAT_SOURCE ${JSON.stringify(CHAT_SOURCE)}. Use off, mock or youtube.`);
   }
 
-  const started = new ChatBridge({ source });
+  const { ProfileStore } = await import("./chat/store.js");
+  const store = new ProfileStore();
+
+  const started = new ChatBridge({ source, store });
   await started.start();
-  console.log(`Chat bridge running on source "${source.name}"`);
+  console.log(`Chat bridge running on source "${source.name}" (storage: ${store.mode})`);
   return started;
 }
 
@@ -117,6 +120,13 @@ const server = createServer(async (req, res) => {
   }
 
   const path = (req.url || "/").split("?")[0];
+
+  if (path === "/api/leaderboard") {
+    const body = JSON.stringify(bridge ? bridge.leaderboard(25) : []);
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(req.method === "HEAD" ? undefined : body);
+    return;
+  }
 
   if (path === "/api/status") {
     const body = JSON.stringify(bridge ? bridge.status() : { source: "off", connected: false });

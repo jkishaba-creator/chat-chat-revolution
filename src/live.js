@@ -24,6 +24,8 @@ const el = {
   quota: $("stat-quota"),
   log: $("chat-log"),
   announcer: $("announcer"),
+  banzuke: $("banzuke-list"),
+  season: $("banzuke-season"),
 };
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -77,6 +79,50 @@ function applyStatus(status) {
   el.quota.textContent = status.quotaLimit
     ? `${status.quotaUsed}/${status.quotaLimit}`
     : "n/a";
+
+  renderBanzuke(status);
+}
+
+function renderBanzuke(status) {
+  if (!el.banzuke) return;
+  if (el.season) {
+    // Say plainly when nothing is being kept, so a missing volume is obvious.
+    el.season.textContent = status.storage === "memory"
+      ? `${status.season} (not saved)`
+      : status.season || "—";
+  }
+
+  const rows = status.leaderboard || [];
+  el.banzuke.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement("li");
+    empty.className = "banzuke__empty";
+    empty.textContent = status.storage === "off"
+      ? "Leaderboard is off."
+      : "No results yet this season.";
+    el.banzuke.append(empty);
+    return;
+  }
+
+  for (const [i, row] of rows.entries()) {
+    const li = document.createElement("li");
+    li.className = "banzuke__row";
+
+    const rank = document.createElement("span");
+    rank.className = "banzuke__rank";
+    rank.textContent = String(i + 1);
+
+    const name = document.createElement("span");
+    name.className = "banzuke__name";
+    name.textContent = row.name;
+
+    const score = document.createElement("span");
+    score.className = "banzuke__score";
+    score.textContent = `${row.wins}勝 · ${row.bestRound}R`;
+
+    li.append(rank, name, score);
+    el.banzuke.append(li);
+  }
 }
 
 function updateHud() {

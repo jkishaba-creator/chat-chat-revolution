@@ -3,7 +3,11 @@
  * name changes, plain conversation, and a board pushed to capacity.
  * Run with: npm run test:chat
  */
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ChatBridge } from "./bridge.js";
+import { ProfileStore } from "./store.js";
 import { PHASE, COLS, ROWS, MAX_CHATTERS } from "../src/config.js";
 
 let failures = 0;
@@ -164,6 +168,90 @@ console.log("\n縁 en-marks");
 
   b.stop();
   b2.stop();
+}
+
+/* ---------- persistence ---------- */
+
+console.log("\npersistent profiles");
+{
+  const dir = mkdtempSync(join(tmpdir(), "ccr-store-"));
+  try {
+    const store = new ProfileStore({ dir, season: "TEST-S1" });
+    check("starts in file mode", store.mode === "file", store.error || "");
+
+    store.recordRound("UC_1", "KITSUNE99", { survived: true, roundsSurvived: 3 });
+    store.recordRound("UC_1", "KITSUNE99", { survived: true, roundsSurvived: 4 });
+    store.recordWin("UC_1", "KITSUNE99", 4);
+    store.recordRound("UC_2", "ramen_dad", { survived: false, roundsSurvived: 1 });
+    store.close();
+
+    check("writes a file", existsSync(join(dir, "profiles.json")));
+
+    // The point of the feature: a restart must not lose history.
+    const reopened = new ProfileStore({ dir, season: "TEST-S1" });
+    const top = reopened.leaderboard();
+    check("survives a restart", top.length === 2, JSON.stringify(top));
+    check("accumulates across sessions", top[0].name === "KITSUNE99" && top[0].wins === 1,
+      JSON.stringify(top[0]));
+    check("tracks the best round", top[0].bestRound === 4, JSON.stringify(top[0]));
+
+    reopened.recordWin("UC_1", "KITSUNE99", 9);
+    check("increments on a later session", reopened.leaderboard()[0].wins === 2);
+
+    // A rename must follow the channel id, not split the record.
+    reopened.recordRound("UC_1", "KITSUNE_RENAMED", { survived: true, roundsSurvived: 2 });
+    const renamed = reopened.leaderboard();
+    check("a rename keeps one row", renamed.length === 2, JSON.stringify(renamed));
+    check("a rename updates the label", renamed[0].name === "KITSUNE_RENAMED", JSON.stringify(renamed[0]));
+
+    // Seasons are isolated, so a reset never destroys the old table.
+    const nextSeason = new ProfileStore({ dir, season: "TEST-S2" });
+    check("a new season starts empty", nextSeason.leaderboard().length === 0);
+    nextSeason.close();
+    reopened.close();
+
+    const back = new ProfileStore({ dir, season: "TEST-S1" });
+    check("the old season is still intact", back.leaderboard().length === 2);
+    back.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // An unwritable directory must degrade, never throw: Railway without a volume.
+  let degraded = null;
+  try {
+    degraded = new ProfileStore({ dir: "/proc/ccr-cannot-write", season: "TEST" });
+  } catch (error) {
+    check("unwritable dir does not throw", false, error.message);
+  }
+  if (degraded) {
+    check("unwritable dir degrades to memory", degraded.mode === "memory", degraded.mode);
+    degraded.recordWin("UC_x", "someone", 5);
+    check("still serves from memory", degraded.leaderboard()[0]?.wins === 1);
+    check("reports the storage mode", degraded.status().storage === "memory");
+    degraded.close();
+  }
+
+  // Wired end to end: a bridge with a store records a real win.
+  const dir2 = mkdtempSync(join(tmpdir(), "ccr-store2-"));
+  try {
+    const store = new ProfileStore({ dir: dir2, season: "TEST-S1" });
+    const b = new ChatBridge({ source: null, botFill: 0, store });
+    const g = b.game;
+    const winner = g.addPlayer("CHAMP", { bot: false, externalKey: "UC_champ" });
+    const loser = g.addPlayer("OTHER", { bot: false, externalKey: "UC_other" });
+    g.hazards = [{ x: loser.x, y: loser.y, type: "tile" }];
+    g.enMark = null;
+    winner.roundsSurvived = 6;
+    g.settleImpact();
+    const table = store.leaderboard();
+    check("a bridge win reaches the store", table.some((r) => r.name === "CHAMP" && r.wins === 1),
+      JSON.stringify(table));
+    check("status exposes the leaderboard", Array.isArray(b.status().leaderboard));
+    b.stop();
+  } finally {
+    rmSync(dir2, { recursive: true, force: true });
+  }
 }
 console.log(failures ? `\n${failures} failing check(s)` : "\nall bridge checks passed");
 process.exit(failures ? 1 : 0);

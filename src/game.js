@@ -790,6 +790,14 @@ export class Game {
 
     this.shake = 1;
 
+    // Pure notification: ids and counts only. Persistence is the bridge's job,
+    // so the rules layer stays runnable headless with no I/O.
+    this.emit("roundSettled", `Round ${this.round} settled.`, {
+      round: this.round,
+      survivors: this.alivePlayers().map((p) => ({ id: p.id, roundsSurvived: p.roundsSurvived })),
+      casualties: casualties.map((p) => ({ id: p.id, roundsSurvived: p.roundsSurvived })),
+    });
+
     if (casualties.length) {
       const names = casualties.map((p) => p.name).join(", ");
       this.emit("out", `${names} ${casualties.length > 1 ? "were" : "was"} flattened.`, {
