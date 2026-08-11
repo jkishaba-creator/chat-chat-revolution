@@ -34,7 +34,7 @@ respects `$PORT`, so the same command runs locally and on a host like Railway.
   forth stops working.
 - From round 4, with 6 or more players, one danger square may carry a **縁 en-mark**: an indigo ring
   with a headcount, like `2/4`. Land enough people on it and everyone standing there survives, and
-  the eight squares around it are spared too. See [縁 En-marks](#-en-marks).
+  the eight squares around it are spared too. See [縁 En-marks](#縁-en-marks).
 - The number of falling objects climbs every round, and the planning window shrinks from 6.2s to 2.8s.
 
 Chatters are eliminated for the rest of the match when hit and keep heckling as spirits. You respawn
