@@ -231,9 +231,19 @@ export class ChatBridge {
   }
 
   status() {
-    return {
+    const source = {
       ...(this.source ? this.source.status() : { source: "none", connected: false }),
       ...this.sourceStatus,
+    };
+    // `waiting` means two different things: seats queued here, and "the
+    // broadcast has not started yet" on the source. Rename the source's so
+    // the queue count below cannot silently clobber it.
+    const sourceWaiting = Boolean(source.waiting);
+    delete source.waiting;
+
+    return {
+      ...source,
+      sourceWaiting,
       viewers: this.clients.size,
       players: this.game.players.length,
       alive: this.game.alivePlayers().length,

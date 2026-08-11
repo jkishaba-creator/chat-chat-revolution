@@ -114,11 +114,175 @@ console.log("\nfatal errors");
   let fatal = null;
   try {
     await source.start(() => {}, (s) => { if (s.fatal) fatal = s; });
+    // start() returns before the connect settles, so a broadcast that has not
+    // begun cannot block the bridge. Wait for the outcome.
+    await source.ready;
   } catch (error) {
     fatal = { error: error.message, fatal: true };
   }
   check("surfaces chat-ended", Boolean(fatal), JSON.stringify(fatal));
   source.stop();
+}
+
+/* ---------- retrying the initial connect ---------- */
+
+/**
+ * Collapses the retry backoff so a wait of minutes tests in milliseconds,
+ * recording what the source would have slept for.
+ *
+ * Two details keep this honest. It yields a real macrotask, because a delay
+ * that resolves on the microtask queue alone starves the event loop and the
+ * retry spins until it hits the quota ceiling. And after `limit` waits it
+ * parks forever, so each test drives an exact number of retries instead of
+ * however many happen to fit in a sleep.
+ */
+function instantDelay(limit = Infinity) {
+  const waits = [];
+  const impl = async (ms) => {
+    waits.push(ms);
+    if (waits.length >= limit) return new Promise(() => {});
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  impl.waits = waits;
+  return impl;
+}
+
+// Resolves once the source has retried `n` times, so tests wait on progress
+// rather than on a fixed sleep.
+async function afterWaits(delayImpl, n) {
+  while (delayImpl.waits.length < n) await new Promise((r) => setTimeout(r, 1));
+}
+
+const KEY = "test-key";
+const NO_VIDEO = { body: { items: [] } };
+const NOT_LIVE = { body: { items: [{ snippet: {} }] } };
+const NO_CHAT = { body: { items: [{ liveStreamingDetails: {} }] } };
+const LIVE = { body: { items: [{ liveStreamingDetails: { activeLiveChatId: "CHAT1" } }] } };
+
+console.log("\nconnect retries while the stream is not live yet");
+{
+  const script = [
+    NO_VIDEO,
+    NOT_LIVE,
+    NO_CHAT,
+    { status: 404, body: {} },
+    { status: 503, body: {} },
+    LIVE,
+  ];
+  script.last = chatPage([]);
+  const fetchImpl = stubFetch(script);
+  const delayImpl = instantDelay();
+  const source = createYouTubeSource({ apiKey: KEY, video: "dQw4w9WgXcQ", fetchImpl, delayImpl });
+
+  const statuses = [];
+  await source.start(() => {}, (s) => statuses.push(s));
+  await source.ready;
+
+  check("retries past every not-yet-live signal", source.status().connected,
+    JSON.stringify(source.status()));
+  check("never reports fatal while waiting", !statuses.some((s) => s.fatal));
+  check("reports waiting on each retry", statuses.filter((s) => s.waiting).length === 5,
+    JSON.stringify(statuses.map((s) => s.waiting)));
+  check("says the video is not there yet", statuses[0].error?.includes("No such video"),
+    statuses[0].error);
+  check("says the video is not live yet", statuses[1].error?.includes("not a live broadcast"),
+    statuses[1].error);
+  check("says the chat is not open yet", statuses[2].error?.includes("no active live chat"),
+    statuses[2].error);
+  check("retries a 404 liveChatNotFound", statuses[3].error?.includes("liveChatNotFound"),
+    statuses[3].error);
+  check("retries a 5xx", statuses[4].error?.includes("503"), statuses[4].error);
+  check("clears waiting once connected", source.status().waiting === false);
+  check("clears the error once connected", source.status().lastError === null,
+    String(source.status().lastError));
+  source.stop();
+}
+
+console.log("\nconnect backoff");
+{
+  const script = [];
+  script.last = NO_CHAT;
+  const fetchImpl = stubFetch(script);
+  const delayImpl = instantDelay(6);
+  const source = createYouTubeSource({ apiKey: KEY, video: "dQw4w9WgXcQ", fetchImpl, delayImpl });
+  // ready never settles while waiting, which is the point: park after 6 retries.
+  await source.start(() => {}, () => {});
+  await afterWaits(delayImpl, 6);
+
+  check("backs off exponentially",
+    delayImpl.waits.join(",") === "5000,10000,20000,30000,30000,30000",
+    delayImpl.waits.join(","));
+  check("caps the backoff at 30s", delayImpl.waits.every((ms) => ms <= 30000),
+    String(Math.max(...delayImpl.waits)));
+  check("one call per retry, no spin", fetchImpl.calls.length === 6,
+    String(fetchImpl.calls.length));
+  check("waiting costs 1 unit per retry", source.status().quotaUsed === 6,
+    String(source.status().quotaUsed));
+  check("stays disconnected while waiting", source.status().connected === false);
+  check("reports waiting", source.status().waiting === true);
+  source.stop();
+}
+
+console.log("\nconnect stays fatal for real faults");
+for (const [name, reason] of [
+  ["keyInvalid", "keyInvalid"],
+  ["accessNotConfigured", "accessNotConfigured"],
+  ["forbidden", "forbidden"],
+  ["quotaExceeded", "quotaExceeded"],
+  ["liveChatEnded", "liveChatEnded"],
+]) {
+  const script = [];
+  script.last = { status: 403, body: { error: { errors: [{ reason }] } } };
+  const delayImpl = instantDelay();
+  const source = createYouTubeSource({
+    apiKey: KEY, video: "dQw4w9WgXcQ", fetchImpl: stubFetch(script), delayImpl,
+  });
+  const statuses = [];
+  await source.start(() => {}, (s) => statuses.push(s));
+  await source.ready;
+
+  check(`${name} is fatal, not retried`, statuses.some((s) => s.fatal), JSON.stringify(statuses));
+  check(`${name} never sleeps for a retry`, delayImpl.waits.length === 0,
+    JSON.stringify(delayImpl.waits));
+  check(`${name} does not report waiting`, source.status().waiting === false);
+  source.stop();
+}
+
+console.log("\nthe retry loop respects the quota budget");
+{
+  const script = [];
+  script.last = NO_CHAT;
+  const source = createYouTubeSource({
+    apiKey: KEY,
+    video: "dQw4w9WgXcQ",
+    fetchImpl: stubFetch(script),
+    delayImpl: instantDelay(),
+    dailyQuotaBudget: 3,
+  });
+  await source.start(() => {}, () => {});
+  await source.ready;
+  const status = source.status();
+  check("a stream that never starts cannot drain the quota", status.quotaUsed <= 3,
+    `used=${status.quotaUsed}`);
+  check("stops waiting once the budget is spent", status.waiting === false);
+  source.stop();
+}
+
+console.log("\nstop() ends the retry loop");
+{
+  const script = [];
+  script.last = NO_CHAT;
+  const fetchImpl = stubFetch(script);
+  const delayImpl = instantDelay();
+  const source = createYouTubeSource({ apiKey: KEY, video: "dQw4w9WgXcQ", fetchImpl, delayImpl });
+  await source.start(() => {}, () => {});
+  await afterWaits(delayImpl, 3);
+  source.stop();
+  const after = fetchImpl.calls.length;
+  await new Promise((r) => setTimeout(r, 20));
+  check("no further calls after stop", fetchImpl.calls.length === after,
+    `${after} -> ${fetchImpl.calls.length}`);
+  check("stop clears waiting", source.status().waiting === false);
 }
 
 console.log(failures ? `\n${failures} failing check(s)` : "\nall chat-source checks passed");

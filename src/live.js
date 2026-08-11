@@ -64,7 +64,10 @@ function renderFeedEntry(entry) {
 function applyStatus(status) {
   const parts = [];
   if (status.source === "youtube") {
-    parts.push(status.connected ? "YouTube chat connected" : "YouTube chat disconnected");
+    // Waiting is the normal pre-stream state, not a fault: say so plainly, so a
+    // streamer checking the overlay before going live is not alarmed by it.
+    if (status.sourceWaiting) parts.push("Waiting for the broadcast to start");
+    else parts.push(status.connected ? "YouTube chat connected" : "YouTube chat disconnected");
     if (status.videoId) parts.push(status.videoId);
   } else if (status.source === "mock") {
     parts.push("Mock chat (no YouTube connection)");

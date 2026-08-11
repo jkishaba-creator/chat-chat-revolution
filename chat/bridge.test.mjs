@@ -253,5 +253,35 @@ console.log("\npersistent profiles");
     rmSync(dir2, { recursive: true, force: true });
   }
 }
+/* ---------- status keeps the two "waiting" meanings apart ---------- */
+
+console.log("\nstatus fields");
+{
+  // The source reports waiting:true for "the broadcast has not started", while
+  // the bridge's own waiting is the seat queue. One must not clobber the other.
+  const source = {
+    name: "stub",
+    async start() { return { pollingIntervalMillis: 0 }; },
+    stop() {},
+    status: () => ({ source: "youtube", connected: false, waiting: true, videoId: "vid" }),
+  };
+  const b = new ChatBridge({ source, botFill: 0 });
+  for (let i = 0; i < 40; i++) {
+    b.handleMessages([{ id: `m${i}`, channelId: `UC${i}`, name: `p${i}`, text: "r" }]);
+  }
+  const status = b.status();
+
+  check("queue count survives", status.waiting === b.game.waiting.length && status.waiting > 0,
+    `waiting=${status.waiting} queue=${b.game.waiting.length}`);
+  check("source waiting is surfaced separately", status.sourceWaiting === true,
+    JSON.stringify({ waiting: status.waiting, sourceWaiting: status.sourceWaiting }));
+  check("still reports the video", status.videoId === "vid");
+  b.stop();
+
+  const off = new ChatBridge({ source: null, botFill: 0 });
+  check("no source means not waiting", off.status().sourceWaiting === false);
+  off.stop();
+}
+
 console.log(failures ? `\n${failures} failing check(s)` : "\nall bridge checks passed");
 process.exit(failures ? 1 : 0);
