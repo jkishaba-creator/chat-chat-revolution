@@ -1,5 +1,6 @@
 import {
   COLS, ROWS, MAX_MOVES, PHASE, TIMING, planMs, PLAN_FLOOR_SOLO, MAX_CHATTERS,
+  EN_MARK_MIN_ROUND, EN_MARK_MIN_PLAYERS, EN_MARK_MIN_REQUIRED, EN_MARK_MAX_REQUIRED,
   SKINS, BOT_NAMES, COL_LABELS,
 } from "./config.js";
 
@@ -90,6 +91,8 @@ export class Game {
     this.effects = [];
     this.shake = 0;
     this.winner = null;
+    this.enMark = null;
+    this.enMarkResult = null;
 
     if (firstRun) {
       this.clock = 0;
@@ -409,6 +412,7 @@ export class Game {
       this.obstacles = this.generateObstacles();
       this.hazards = this.generateHazards();
     }
+    this.enMark = scripted ? null : this.assignEnMark();
     this.effects = [];
 
     this.planDuration = planMs(this.round, this.planFloor);
@@ -420,6 +424,12 @@ export class Game {
       "round",
       `Round ${this.round} — ${this.hazards.length} falling. Danger: ${named}${rest > 0 ? ` +${rest} more` : ""}`,
     );
+    if (this.enMark) {
+      this.emit(
+        "system",
+        `縁 En-mark on ${cellName(this.enMark.x, this.enMark.y)} — gather ${this.enMark.required} there and everyone on it lives.`,
+      );
+    }
   }
 
   generateObstacles() {
@@ -516,6 +526,72 @@ export class Game {
       y: c.y,
       type: this.round < 3 ? (i % 2 ? "tile" : "boulder") : this.pick(types),
     }));
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 縁 En-marks
+   *
+   * One telegraphed square also carries a required headcount. Stand there
+   * with enough people and everyone on it survives, and the eight
+   * surrounding hazards are cancelled too.
+   *
+   * The mark is always placed ON an existing hazard, never on a safe cell.
+   * That is what keeps the fairness guarantee intact: the danger set is
+   * unchanged, hasEscape() behaves identically, and ignoring the mark stays
+   * a valid way to survive. An en-mark only ever adds an option.
+   * ------------------------------------------------------------------ */
+
+  assignEnMark() {
+    const alive = this.alivePlayers().length;
+    if (this.round < EN_MARK_MIN_ROUND || alive < EN_MARK_MIN_PLAYERS) return null;
+    if (!this.hazards.length) return null;
+
+    // Never ask for more than half the room, so it stays achievable.
+    const required = Math.max(
+      EN_MARK_MIN_REQUIRED,
+      Math.min(EN_MARK_MAX_REQUIRED, Math.floor(alive / 6), Math.floor(alive / 2)),
+    );
+    if (required < EN_MARK_MIN_REQUIRED) return null;
+
+    // Prefer a central cell: easier for a scattered crowd to converge on.
+    const cx = (COLS - 1) / 2;
+    const cy = (ROWS - 1) / 2;
+    const ranked = [...this.hazards].sort(
+      (a, b) => (Math.abs(a.x - cx) + Math.abs(a.y - cy)) - (Math.abs(b.x - cx) + Math.abs(b.y - cy)),
+    );
+    const spot = ranked[this.randInt(Math.min(3, ranked.length))];
+    return { x: spot.x, y: spot.y, required };
+  }
+
+  /** Cells spared when an en-mark succeeds: the mark plus its eight neighbours. */
+  enMarkShelter() {
+    if (!this.enMark) return new Set();
+    const out = new Set();
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const x = this.enMark.x + dx;
+        const y = this.enMark.y + dy;
+        if (inBounds(x, y)) out.add(key(x, y));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * How many players are currently committed to the en-mark, based on where
+   * their queued path ends. Drives the live "2/4" readout during planning.
+   */
+  enMarkCommitted() {
+    if (!this.enMark) return 0;
+    const blocked = this.blockedCells();
+    let count = 0;
+    for (const p of this.alivePlayers()) {
+      const end = p.queue.length
+        ? movesToPath(p.x, p.y, p.queue, blocked).at(-1)
+        : { x: p.x, y: p.y };
+      if (end.x === this.enMark.x && end.y === this.enMark.y) count += 1;
+    }
+    return count;
   }
 
   reachable(player, blocked) {
@@ -680,6 +756,26 @@ export class Game {
 
   settleImpact() {
     const danger = new Set(this.hazards.map((h) => key(h.x, h.y)));
+
+    // Resolve the en-mark before the casualty sweep: a successful gathering
+    // spares the marked cell and the ring of hazards around it.
+    let enMarkResult = null;
+    if (this.enMark) {
+      const markKey = key(this.enMark.x, this.enMark.y);
+      const occupants = this.alivePlayers().filter((p) => key(p.x, p.y) === markKey);
+      const held = occupants.length >= this.enMark.required;
+      enMarkResult = { ...this.enMark, occupants: occupants.length, held };
+      if (held) {
+        for (const k of this.enMarkShelter()) danger.delete(k);
+        this.effects.push({ kind: "shelter", x: this.enMark.x, y: this.enMark.y, life: 900, max: 900 });
+        this.emit(
+          "result",
+          `縁 ${occupants.length} gathered on ${cellName(this.enMark.x, this.enMark.y)}. The tiles broke around them.`,
+        );
+      }
+    }
+    this.enMarkResult = enMarkResult;
+
     const casualties = [];
     for (const p of this.alivePlayers()) {
       if (danger.has(key(p.x, p.y))) {
@@ -763,6 +859,12 @@ export class Game {
     }
     if (this.hazards.length) {
       parts.push(`Falling on ${this.hazards.map((h) => cellName(h.x, h.y)).join(", ")}.`);
+    }
+    if (this.enMark) {
+      parts.push(
+        `En-mark on ${cellName(this.enMark.x, this.enMark.y)} needs ${this.enMark.required};`
+        + ` ${this.enMarkCommitted()} committed.`,
+      );
     }
     if (this.obstacles.length) {
       parts.push(`Blocked cells ${this.obstacles.map((o) => cellName(o.x, o.y)).join(", ")}.`);

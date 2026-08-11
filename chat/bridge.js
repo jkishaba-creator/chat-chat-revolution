@@ -105,6 +105,9 @@ export class ChatBridge {
       planDuration: g.planDuration,
       hazards: g.hazards.map((h) => ({ x: h.x, y: h.y, type: h.type })),
       obstacles: g.obstacles.map((o) => ({ x: o.x, y: o.y, kind: o.kind })),
+      // Send the committed count with the mark: the live view has no player
+      // queues of its own to derive it from.
+      enMark: g.enMark ? { ...g.enMark, committed: g.enMarkCommitted() } : null,
       effects: g.effects.map((e) => ({ x: e.x, y: e.y, kind: e.kind, life: e.life, max: e.max })),
       shake: g.shake,
       winner: g.winner ? g.winner.name : null,

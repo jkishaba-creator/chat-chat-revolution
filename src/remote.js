@@ -15,6 +15,7 @@ export class RemoteGame {
     this.hazards = [];
     this.obstacles = [];
     this.effects = [];
+    this.enMark = null;
     this.shake = 0;
     this.winner = null;
     this.waiting = 0;
@@ -31,6 +32,7 @@ export class RemoteGame {
     this.round = state.round;
     this.hazards = state.hazards;
     this.obstacles = state.obstacles;
+    this.enMark = state.enMark;
     this.effects = state.effects;
     this.shake = state.shake;
     this.waiting = state.waiting;
@@ -90,5 +92,10 @@ export class RemoteGame {
 
   alivePlayers() {
     return this.players.filter((p) => p.alive);
+  }
+
+  // The server counts commitments; the live view just reports what it was sent.
+  enMarkCommitted() {
+    return this.enMark?.committed ?? 0;
   }
 }

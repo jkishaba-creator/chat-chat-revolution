@@ -45,9 +45,17 @@ export const planMs = (round, floor = PLAN_FLOOR_SOLO) => {
 // spawn cells run out, so extra chatters wait in a queue for the next match.
 export const MAX_CHATTERS = 28;
 
+// 縁 En-marks: a hazard square that spares everyone on it, and its neighbours,
+// when enough players gather. Needs a crowd to be meaningful, and a couple of
+// rounds of plain dodging first so the basic rule lands before the twist.
 // 本日の瓦: one shared board per date. Capped because the daily is a single
 // scored run, not an endurance match, and every round is precomputed up front.
 export const DAILY_ROUNDS = 30;
+
+export const EN_MARK_MIN_ROUND = 4;
+export const EN_MARK_MIN_PLAYERS = 6;
+export const EN_MARK_MIN_REQUIRED = 2;
+export const EN_MARK_MAX_REQUIRED = 4;
 
 export const PALETTE = {
   water: "#12244a",
@@ -64,6 +72,9 @@ export const PALETTE = {
   ink: "#141a26",
   bamboo: "#4f7a45",
   bambooDark: "#31512c",
+  // 縁 En-mark ring. Indigo reads as "gather here" against the vermilion of
+  // danger, and never competes with it for meaning.
+  enMark: "#7fb3ff",
 };
 
 // Kimono / hair colours for characters.

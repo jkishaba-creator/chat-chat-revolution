@@ -270,6 +270,47 @@ export class Renderer {
 
       this.text("危", px + TILE / 2, py + TILE / 2 + 4, { size: 11, color: C.vermilion, outline: "#2a0c0a" });
     }
+
+    this.drawEnMark(game);
+  }
+
+  /**
+   * 縁 En-mark: an indigo ring over a hazard, with the headcount it needs and
+   * how many are committed so far. Never colour-only — the ring shape and the
+   * "2/4" numerals carry the meaning on their own.
+   */
+  drawEnMark(game) {
+    const mark = game.enMark;
+    if (!mark) return;
+    const ctx = this.ctx;
+    const px = ARENA_X + mark.x * TILE;
+    const py = ARENA_Y + mark.y * TILE;
+    const cx = px + TILE / 2;
+    const cy = py + TILE / 2;
+
+    const committed = typeof game.enMarkCommitted === "function" ? game.enMarkCommitted() : 0;
+    const met = committed >= mark.required;
+    const ring = met ? C.bamboo : C.enMark;
+
+    // Double ring, so it reads against the vermilion hazard wash beneath it.
+    ctx.globalAlpha = met ? 0.95 : 0.8;
+    ctx.strokeStyle = ring;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 13, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    this.text(`${committed}/${mark.required}`, cx, cy + 13, {
+      size: 8,
+      color: met ? C.bamboo : C.paper,
+      outline: C.ink,
+    });
+    this.text("縁", cx, cy + 2, { size: 10, color: ring, outline: C.ink });
   }
 
   drawObstacles(game) {
@@ -532,6 +573,18 @@ export class Renderer {
           this.rect(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.5, 2, 2, C.sakura);
         }
         this.text("×", cx, cy + 3, { size: 12, color: C.vermilion });
+        ctx.globalAlpha = 1;
+      } else if (e.kind === "shelter") {
+        // The crowd held the en-mark: a ring of safety blows outward.
+        const ctx = this.ctx;
+        ctx.globalAlpha = Math.max(0, 1 - t) * 0.9;
+        ctx.strokeStyle = C.enMark;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 8 + t * 30, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        this.text("縁", cx, cy + 3, { size: 13, color: C.enMark, outline: C.ink });
         ctx.globalAlpha = 1;
       }
     }

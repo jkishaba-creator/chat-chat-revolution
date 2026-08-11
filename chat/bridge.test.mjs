@@ -119,7 +119,51 @@ check("conversation was ignored, not executed", bridge.stats.ignored > 0, JSON.s
 const snap = bridge.snapshot();
 check("snapshot serialises", JSON.stringify(snap).length > 100);
 check("snapshot carries players", snap.players.length === game.players.length);
+check("snapshot carries the en-mark field", "enMark" in snap);
 
 bridge.stop();
+
+/* ---------- en-marks ---------- */
+
+console.log("\n縁 en-marks");
+{
+  const b = new ChatBridge({ source: null, botFill: 0 });
+  const g = b.game;
+  for (let i = 0; i < 8; i++) g.addPlayer(`p${i}`, { bot: false, externalKey: `UC_e${i}` });
+
+  // Force a known en-mark rather than waiting for one to be generated.
+  g.hazards = [{ x: 5, y: 3, type: "tile" }, { x: 5, y: 4, type: "tile" }, { x: 4, y: 3, type: "bell" }];
+  g.enMark = { x: 5, y: 3, required: 3 };
+
+  const shelter = g.enMarkShelter();
+  check("shelter covers the mark and its neighbours", shelter.size === 9, `size=${shelter.size}`);
+
+  // Too few: everyone on the mark dies.
+  const alive = g.alivePlayers();
+  alive.forEach((p, i) => { p.x = i < 2 ? 5 : 0; p.y = i < 2 ? 3 : i; });
+  g.settleImpact();
+  check("an under-strength gathering is crushed", !g.enMarkResult.held
+    && alive.slice(0, 2).every((p) => !p.alive), JSON.stringify(g.enMarkResult));
+
+  // Enough bodies: everyone on the mark lives, and the ring is spared.
+  const b2 = new ChatBridge({ source: null, botFill: 0 });
+  const g2 = b2.game;
+  for (let i = 0; i < 8; i++) g2.addPlayer(`q${i}`, { bot: false, externalKey: `UC_f${i}` });
+  g2.hazards = [{ x: 5, y: 3, type: "tile" }, { x: 5, y: 4, type: "tile" }, { x: 4, y: 3, type: "bell" }];
+  g2.enMark = { x: 5, y: 3, required: 3 };
+  const crowd = g2.alivePlayers();
+  crowd.forEach((p, i) => {
+    if (i < 3) { p.x = 5; p.y = 3; }        // on the mark
+    else if (i === 3) { p.x = 5; p.y = 4; }  // sheltered neighbour
+    else { p.x = 0; p.y = i - 4; }
+  });
+  g2.settleImpact();
+  check("a full gathering survives", g2.enMarkResult.held && crowd.slice(0, 3).every((p) => p.alive),
+    JSON.stringify(g2.enMarkResult));
+  check("neighbouring hazards are cancelled", crowd[3].alive, "sheltered neighbour died");
+
+  b.stop();
+  b2.stop();
+}
 console.log(failures ? `\n${failures} failing check(s)` : "\nall bridge checks passed");
 process.exit(failures ? 1 : 0);
