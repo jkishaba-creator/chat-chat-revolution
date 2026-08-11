@@ -210,6 +210,19 @@ canvas {
 
 .board__hint b { color: var(--gold); }
 
+.board__link {
+  color: var(--sakura);
+  text-decoration-color: color-mix(in srgb, var(--sakura) 45%, transparent);
+  text-underline-offset: 3px;
+  margin-inline-start: 6px;
+  transition: color var(--step) var(--ease), text-decoration-color var(--step) var(--ease);
+}
+
+.board__link:hover {
+  color: var(--paper);
+  text-decoration-color: currentColor;
+}
+
 /* ---------- chat ---------- */
 
 .chat {

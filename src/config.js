@@ -45,6 +45,10 @@ export const planMs = (round, floor = PLAN_FLOOR_SOLO) => {
 // spawn cells run out, so extra chatters wait in a queue for the next match.
 export const MAX_CHATTERS = 28;
 
+// 本日の瓦: one shared board per date. Capped because the daily is a single
+// scored run, not an endurance match, and every round is precomputed up front.
+export const DAILY_ROUNDS = 30;
+
 export const PALETTE = {
   water: "#12244a",
   waterLight: "#1b3466",

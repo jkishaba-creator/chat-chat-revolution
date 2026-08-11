@@ -1,7 +1,9 @@
 import { Game, parseMoves, movesToPath, cellName } from "./game.js";
 import { Renderer } from "./render.js";
 import { ChatPanel } from "./chat.js";
-import { PHASE, MAX_MOVES, BOT_NAMES, BOT_CHATTER, planMs } from "./config.js";
+import { PHASE, MAX_MOVES, BOT_NAMES, BOT_CHATTER } from "./config.js";
+import { dailyPlan, readDaily, recordDaily } from "./daily.js";
+import { todayKey } from "./rng.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,18 +23,28 @@ const el = {
   say: $("say"),
   handle: $("handle"),
   status: $("input-status"),
+  modeLink: $("mode-link"),
 };
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const chat = new ChatPanel({ log: el.log, announcer: el.announcer });
 const renderer = new Renderer(el.canvas, { reducedMotion });
 
-const BOT_TARGET = 10;
+// 本日の瓦: /?daily runs the shared date-seeded board, alone, one scored run.
+const DAILY = new URLSearchParams(location.search).has("daily");
+const today = todayKey();
+const daily = DAILY ? dailyPlan(today) : null;
+
+const BOT_TARGET = DAILY ? 0 : 10;
 let botSchedule = [];
 let ambientAt = 0;
+let dailyScored = false;
 
 const game = new Game({
   snapMotion: reducedMotion,
+  rng: Math.random,
+  plan: daily ? daily.plan : null,
+  solo: DAILY,
   onEvent: ({ type, text, meta }) => {
     if (type === "round") {
       chat.push({ name: "SYSTEM", body: text, kind: "system" });
@@ -50,7 +62,7 @@ const game = new Game({
     } else if (type === "result") {
       chat.push({ name: "SYSTEM", body: text, kind: "alert" });
       chat.announce(text);
-      recordBest();
+      if (DAILY) finishDaily(); else recordBest();
     } else {
       chat.push({ name: "SYSTEM", body: text, kind: "system" });
     }
@@ -70,9 +82,36 @@ for (let i = 0; i < BOT_TARGET; i++) {
 }
 const you = game.setHuman(el.handle.value.trim() || "YOU");
 
-chat.push({ name: "SYSTEM", body: "瓦落とし — count the squares, then type your path.", kind: "system" });
-chat.push({ name: "SYSTEM", body: `Up to ${MAX_MOVES} steps per round: l, r, u, d. Obstacles block you from round 3.`, kind: "system" });
-chat.push({ name: "SYSTEM", body: "Chat is eliminated for the match when hit. You respawn every round.", kind: "system" });
+if (daily && you) {
+  // Everyone starts the daily on the same square, or the shared board is not
+  // really shared.
+  you.x = daily.start.x; you.y = daily.start.y;
+  you.rx = daily.start.x; you.ry = daily.start.y;
+}
+
+if (el.modeLink) {
+  el.modeLink.textContent = DAILY ? "← Back to endless play" : "Play today's 本日の瓦 →";
+  el.modeLink.href = DAILY ? "./" : "?daily";
+}
+
+if (DAILY) {
+  const prior = readDaily();
+  chat.push({ name: "SYSTEM", body: `本日の瓦 — the Daily Kawara for ${today}.`, kind: "system" });
+  chat.push({ name: "SYSTEM", body: "Same board for every player today. No bots, one scored run.", kind: "system" });
+  if (prior.result?.date === today) {
+    chat.push({
+      name: "SYSTEM",
+      body: `You already scored ${prior.result.rounds} rounds today. This run is practice.`,
+      kind: "system",
+    });
+  } else if (prior.streak > 0) {
+    chat.push({ name: "SYSTEM", body: `Current streak: ${prior.streak} day(s).`, kind: "system" });
+  }
+} else {
+  chat.push({ name: "SYSTEM", body: "瓦落とし — count the squares, then type your path.", kind: "system" });
+  chat.push({ name: "SYSTEM", body: `Up to ${MAX_MOVES} steps per round: l, r, u, d. Obstacles block you from round 3.`, kind: "system" });
+  chat.push({ name: "SYSTEM", body: "Chat is eliminated for the match when hit. You respawn every round.", kind: "system" });
+}
 
 /* ------------------------------------------------------------------ *
  * Bot chatter
@@ -228,6 +267,21 @@ el.form.addEventListener("submit", (event) => {
  * Best score
  * ------------------------------------------------------------------ */
 
+// A daily run ends the moment you are hit: there is nobody else to outlast.
+function finishDaily() {
+  if (dailyScored) return;
+  dailyScored = true;
+  const me = game.human();
+  const rounds = me ? me.roundsSurvived : 0;
+  const outcome = recordDaily(today, rounds);
+  const body = outcome.scored
+    ? `本日の瓦 · ${today} · ${rounds} rounds · streak ${outcome.streak}`
+    : `Practice run: ${rounds} rounds. Today's score stands at ${outcome.rounds}.`;
+  chat.push({ name: "SYSTEM", body, kind: "alert" });
+  chat.announce(body);
+  setStatus(outcome.scored ? "Daily recorded. Come back tomorrow." : "Practice run — not scored.", "ok");
+}
+
 function recordBest() {
   const me = game.human();
   if (!me) return;
@@ -238,9 +292,11 @@ function recordBest() {
   }
 }
 
-const storedBest = Number(localStorage.getItem("ccr-best") || 0);
-if (storedBest > 0) {
-  chat.push({ name: "SYSTEM", body: `Your best so far: ${storedBest} rounds.`, kind: "system" });
+if (!DAILY) {
+  const storedBest = Number(localStorage.getItem("ccr-best") || 0);
+  if (storedBest > 0) {
+    chat.push({ name: "SYSTEM", body: `Your best so far: ${storedBest} rounds.`, kind: "system" });
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -302,4 +358,4 @@ document.fonts?.ready.then(() => renderer.resize());
 requestAnimationFrame(frame);
 
 // Expose for debugging in the console.
-window.ccr = { game, renderer, planMs, you };
+window.ccr = { game, renderer, you, daily };

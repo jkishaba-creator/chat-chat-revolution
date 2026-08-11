@@ -6,8 +6,6 @@ import {
 const DIRS = { l: [-1, 0], r: [1, 0], u: [0, -1], d: [0, 1] };
 
 const key = (x, y) => `${x},${y}`;
-const randInt = (n) => Math.floor(Math.random() * n);
-const pick = (arr) => arr[randInt(arr.length)];
 const inBounds = (x, y) => x >= 0 && y >= 0 && x < COLS && y < ROWS;
 
 export const cellName = (x, y) => `${COL_LABELS[x]}${y + 1}`;
@@ -56,8 +54,24 @@ export function movesToPath(startX, startY, moves, blocked) {
 }
 
 export class Game {
-  constructor({ onEvent, snapMotion = false, planFloor = PLAN_FLOOR_SOLO, maxPlayers = MAX_CHATTERS } = {}) {
+  constructor({
+    onEvent,
+    snapMotion = false,
+    planFloor = PLAN_FLOOR_SOLO,
+    maxPlayers = MAX_CHATTERS,
+    rng = Math.random,
+    plan = null,
+    solo = false,
+  } = {}) {
     this.onEvent = onEvent || (() => {});
+    // Injectable so the Daily Kawara can reproduce a board from a date seed.
+    // Everything random in the rules layer must go through this.
+    this.rng = rng;
+    // A precomputed round sequence. When present, startRound() consumes it
+    // instead of generating, which is what makes a shared daily seed possible.
+    this.plan = plan;
+    // Solo runs end on the player's own death, not on last-one-standing.
+    this.solo = solo;
     // With reduced motion the token jumps square to square instead of sliding.
     this.snapMotion = snapMotion;
     this.planFloor = planFloor;
@@ -112,6 +126,14 @@ export class Game {
 
   emit(type, text, meta) {
     this.onEvent({ type, text, meta });
+  }
+
+  randInt(n) {
+    return Math.floor(this.rng() * n);
+  }
+
+  pick(arr) {
+    return arr[this.randInt(arr.length)];
   }
 
   enterPhase(phase, ms) {
@@ -177,14 +199,14 @@ export class Game {
     const taken = new Set(this.players.filter((p) => p.alive).map((p) => key(p.x, p.y)));
     const blocked = this.blockedCells();
     for (let i = 0; i < 120; i++) {
-      const x = randInt(COLS);
-      const y = randInt(ROWS);
+      const x = this.randInt(COLS);
+      const y = this.randInt(ROWS);
       if (!taken.has(key(x, y)) && !blocked.has(key(x, y))) return { x, y };
     }
     // Random probing failed, so the board is crowded. Scan every cell before
     // declaring it full, starting at a random offset to avoid a corner bias.
     const total = COLS * ROWS;
-    const offset = randInt(total);
+    const offset = this.randInt(total);
     for (let i = 0; i < total; i++) {
       const cell = (offset + i) % total;
       const x = cell % COLS;
@@ -360,7 +382,8 @@ export class Game {
       // Two groups come back at the start of a round: the local player, who
       // always respawns, and newcomers who arrived while a round was running.
       // Chatters flattened by a tile stay out until the next match.
-      if (p.spectating && (p.id === this.humanId || p.pendingEntry)) {
+      // Solo runs never respawn: being hit is the end of the attempt.
+      if (p.spectating && !this.solo && (p.id === this.humanId || p.pendingEntry)) {
         const spot = this.freeSpawn();
         if (spot) {
           p.spectating = false;
@@ -376,8 +399,16 @@ export class Game {
       p.plannedThisRound = false;
     }
 
-    this.obstacles = this.generateObstacles();
-    this.hazards = this.generateHazards();
+    // A precomputed plan (the Daily Kawara) wins over live generation, because
+    // generation reads player positions and would diverge between players.
+    const scripted = this.plan ? this.plan[this.round - 1] : null;
+    if (scripted) {
+      this.obstacles = scripted.obstacles.map((o) => ({ ...o }));
+      this.hazards = scripted.hazards.map((h) => ({ ...h }));
+    } else {
+      this.obstacles = this.generateObstacles();
+      this.hazards = this.generateHazards();
+    }
     this.effects = [];
 
     this.planDuration = planMs(this.round, this.planFloor);
@@ -399,13 +430,13 @@ export class Game {
     const kinds = ["lantern", "bamboo", "pillar"];
     let guard = 0;
     while (out.length < count && guard++ < 300) {
-      const x = randInt(COLS);
-      const y = randInt(ROWS);
+      const x = this.randInt(COLS);
+      const y = this.randInt(ROWS);
       if (used.has(key(x, y))) continue;
       // Keep the board breathable: no obstacle directly beside another.
       if (out.some((o) => Math.abs(o.x - x) + Math.abs(o.y - y) <= 1)) continue;
       used.add(key(x, y));
-      out.push({ x, y, kind: pick(kinds) });
+      out.push({ x, y, kind: this.pick(kinds) });
     }
     return out;
   }
@@ -418,42 +449,42 @@ export class Game {
     const kinds = this.round < 2 ? ["scatter"]
       : this.round < 4 ? ["scatter", "row", "col"]
       : ["scatter", "row", "col", "cross", "comb", "ring"];
-    const kind = pick(kinds);
+    const kind = this.pick(kinds);
 
     if (kind === "row") {
-      const y = randInt(ROWS);
-      const gaps = new Set([randInt(COLS), randInt(COLS)]);
+      const y = this.randInt(ROWS);
+      const gaps = new Set([this.randInt(COLS), this.randInt(COLS)]);
       for (let x = 0; x < COLS; x++) if (!gaps.has(x)) add(x, y);
     } else if (kind === "col") {
-      const x = randInt(COLS);
-      const gap = randInt(ROWS);
+      const x = this.randInt(COLS);
+      const gap = this.randInt(ROWS);
       for (let y = 0; y < ROWS; y++) if (y !== gap) add(x, y);
     } else if (kind === "cross") {
-      const cx = 1 + randInt(COLS - 2);
-      const cy = 1 + randInt(ROWS - 2);
+      const cx = 1 + this.randInt(COLS - 2);
+      const cy = 1 + this.randInt(ROWS - 2);
       for (let x = 0; x < COLS; x++) add(x, cy);
       for (let y = 0; y < ROWS; y++) add(cx, y);
     } else if (kind === "comb") {
-      const parity = randInt(2);
+      const parity = this.randInt(2);
       for (let x = parity; x < COLS; x += 2) {
         for (let y = 0; y < ROWS; y++) if ((x + y) % 3 !== 0) add(x, y);
       }
     } else if (kind === "ring") {
-      const cx = 1 + randInt(COLS - 2);
-      const cy = 1 + randInt(ROWS - 2);
+      const cx = 1 + this.randInt(COLS - 2);
+      const cy = 1 + this.randInt(ROWS - 2);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) if (dx || dy) add(cx + dx, cy + dy);
       }
     }
 
     let guard = 0;
-    while (cells.size < count && guard++ < 400) add(randInt(COLS), randInt(ROWS));
+    while (cells.size < count && guard++ < 400) add(this.randInt(COLS), this.randInt(ROWS));
 
     // Never cover the whole board.
     const free = COLS * ROWS - blocked.size;
     const cap = Math.min(count + 4, Math.floor(free * 0.6));
     const list = [...cells];
-    while (list.length > cap) list.splice(randInt(list.length), 1);
+    while (list.length > cap) list.splice(this.randInt(list.length), 1);
     return list.map((k) => {
       const [x, y] = k.split(",").map(Number);
       return { x, y };
@@ -474,7 +505,7 @@ export class Game {
       for (const p of stuck) {
         const reach = this.reachable(p, blocked);
         const openable = [...reach].filter((k) => danger.has(k));
-        const target = openable.length ? pick(openable) : null;
+        const target = openable.length ? this.pick(openable) : null;
         if (target) cells = cells.filter((c) => key(c.x, c.y) !== target);
       }
     }
@@ -483,7 +514,7 @@ export class Game {
     return cells.map((c, i) => ({
       x: c.x,
       y: c.y,
-      type: this.round < 3 ? (i % 2 ? "tile" : "boulder") : pick(types),
+      type: this.round < 3 ? (i % 2 ? "tile" : "boulder") : this.pick(types),
     }));
   }
 
@@ -548,11 +579,11 @@ export class Game {
     if (safeTargets.length) {
       safeTargets.sort((a, b) => a.depth - b.depth);
       const shortlist = safeTargets.slice(0, sloppy ? safeTargets.length : Math.max(1, Math.ceil(safeTargets.length * 0.4)));
-      target = pick(shortlist).k;
+      target = this.pick(shortlist).k;
     }
     // A sloppy read is the whole game: they run somewhere reachable, not somewhere safe.
     if (!target || (sloppy && Math.random() < 0.55)) {
-      target = pick([...prev.keys()]);
+      target = this.pick([...prev.keys()]);
     }
 
     const moves = [];
@@ -671,6 +702,27 @@ export class Game {
     }
 
     const alive = this.alivePlayers();
+
+    // Solo (the Daily Kawara): there is nobody to outlast, so the run ends when
+    // you are hit or when the scripted rounds are used up — not at one survivor.
+    if (this.solo) {
+      const me = this.human();
+      const finished = this.plan && this.round >= this.plan.length;
+      if (!me || !me.alive || finished) {
+        this.winner = me && me.alive ? me : null;
+        this.enterPhase(PHASE.GAMEOVER, TIMING.gameover);
+        this.emit(
+          "result",
+          this.winner
+            ? `Cleared all ${this.round} rounds. 天晴れ!`
+            : `Flattened on round ${this.round}.`,
+        );
+        return;
+      }
+      this.enterPhase(PHASE.BREAK, TIMING.break);
+      return;
+    }
+
     if (alive.length <= 1) {
       this.winner = alive[0] || null;
       this.enterPhase(PHASE.GAMEOVER, TIMING.gameover);
