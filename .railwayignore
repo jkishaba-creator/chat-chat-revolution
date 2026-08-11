@@ -1,0 +1,14 @@
+# Keep the deploy upload to just the app. Mirrors .gitignore, but explicit:
+# .env holds the YouTube API key and must never enter a build context.
+.git/
+node_modules/
+.polariumcode/
+.DS_Store
+*.log
+
+.env
+.env.*
+!.env.example
+
+# Local profile store. Production writes to the mounted volume at $DATA_DIR.
+data/

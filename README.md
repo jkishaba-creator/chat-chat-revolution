@@ -205,3 +205,26 @@ railway up
 
 Railway deploys from the local directory, so a `git push` alone does not redeploy. Connect the
 GitHub repo in the Railway dashboard if you want pushes to deploy automatically.
+
+`.railwayignore` keeps `.env`, `data/` and `node_modules` out of the upload, so the YouTube API
+key never enters a build context.
+
+### Live mode on Railway
+
+```bash
+railway volume add --mount-path /data
+railway variables --set CHAT_SOURCE=mock --set DATA_DIR=/data
+railway up
+```
+
+Confirm the volume took with `GET /api/status`: `"storage": "file"` with a null `storageError`
+means 番付 is persisting. `"storage": "memory"` means the store degraded and the season shows as
+*(not saved)*.
+
+**The `RAILWAY_RUN_UID` gotcha:** Railway mounts volumes owned by root, so an image that runs as a
+non-root user gets `EACCES` and the store degrades to memory. Note where it fails: `mkdirSync` is
+recursive and succeeds on an existing mount, so the break lands on the *first write*, not at boot —
+the service comes up looking healthy and only stops persisting later. The fix is `RAILWAY_RUN_UID=0`
+on the service. This deploy does **not** need it — the Nixpacks builder here already runs as root —
+but moving to a Dockerfile with a `USER` line would reintroduce it. Degrading logs to stderr and
+never crashes the game by design, so check `storage` after any builder change rather than assuming.
